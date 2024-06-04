@@ -299,12 +299,6 @@ export function producerIncrementEpoch(): void {
  */
 export function producerUpdateValueVersion(node: ReactiveNode): void {
   if (!node.volatile) {
-    if (consumerIsLive(node) && !node.dirty) {
-      // A live consumer will be marked dirty by producers, so a clean state means that its version
-      // is guaranteed to be up-to-date.
-      return;
-    }
-
     if (!node.dirty && node.lastCleanEpoch === epoch) {
       // Even non-live consumers can skip polling if they previously found themselves to be clean at
       // the current epoch, since their dependencies could not possibly have changed (such a change
