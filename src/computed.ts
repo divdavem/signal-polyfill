@@ -11,6 +11,7 @@ import {
   consumerAfterComputation,
   consumerBeforeComputation,
   consumerMarkDirty,
+  consumerPollProducersForChange,
   producerAccessed,
   producerUpdateValueVersion,
   REACTIVE_NODE,
@@ -158,19 +159,29 @@ const COMPUTED_NODE = /* @__PURE__ */ (() => {
       node.value = COMPUTING;
       node.markedToRecompute = false;
 
-      const prevConsumer = consumerBeforeComputation(node);
       let newValue: unknown;
-      let wasEqual = false;
-      try {
-        newValue = node.computation.call(node.wrapper);
-        const oldOk = oldValue !== UNSET && oldValue !== ERRORED;
-        wasEqual = oldOk && node.equal.call(node.wrapper, oldValue, newValue);
-      } catch (err) {
-        newValue = ERRORED;
-        node.error = err;
-      } finally {
-        consumerAfterComputation(node, prevConsumer);
+      let outdatedReadVersion = true;
+      let iterations = 0;
+      while (outdatedReadVersion && iterations < 1000) {
+        iterations++;
+        const prevConsumer = consumerBeforeComputation(node);
+        try {
+          newValue = node.computation.call(node.wrapper);
+        } catch (err) {
+          newValue = ERRORED;
+          node.error = err;
+        } finally {
+          consumerAfterComputation(node, prevConsumer);
+        }
+        outdatedReadVersion = consumerPollProducersForChange(node);
       }
+      if (outdatedReadVersion) {
+        newValue = ERRORED;
+        node.error = new Error('Could not stabilize the computation.');
+      }
+
+      const canCompare = oldValue !== UNSET && oldValue !== ERRORED && newValue !== ERRORED;
+      const wasEqual = canCompare && node.equal.call(node.wrapper, oldValue, newValue);
 
       if (wasEqual) {
         // No change to `valueVersion` - old and new values are
