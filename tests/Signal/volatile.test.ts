@@ -48,6 +48,27 @@ describe('Signal.Volatile', () => {
     expect(unsubscribe).toHaveBeenCalled();
   });
 
+  it('uses the wrapper context when invoking subscribe/unsubscribe', () => {
+    const subscribe = vi.fn(function () {
+      expect(this).toBeInstanceOf(Signal.Volatile);
+      return unsubscribe;
+    });
+
+    const unsubscribe = vi.fn(function () {
+      expect(this).toBeInstanceOf(Signal.Volatile);
+    });
+
+    const volatile = new Signal.Volatile(() => 'value', {subscribe});
+
+    const watcher = new Signal.subtle.Watcher(() => {});
+
+    watcher.watch(volatile);
+    expect(subscribe).toHaveBeenCalled();
+
+    watcher.unwatch(volatile);
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
   it('survives subscribe without an unsubscribe callback', () => {
     const volatile = new Signal.Volatile(() => 'value', {
       subscribe: () => {},
@@ -91,5 +112,27 @@ describe('Signal.Volatile', () => {
     expect(computed.get()).toBe('value');
     expect(computed.get()).toBe('value');
     expect(getSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies consumers when a subscribed value changes', () => {
+    let onChange: () => void;
+    let value = 'initial value';
+    const volatile = new Signal.Volatile(() => value, {
+      subscribe: (cb) => (onChange = cb),
+    });
+
+    const notifySpy = vi.fn();
+    const watcher = new Signal.subtle.Watcher(notifySpy);
+    watcher.watch(volatile);
+
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    expect(volatile.get()).toBe('initial value');
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    value = 'changed';
+    onChange!?.();
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(volatile.get()).toBe('changed');
   });
 });

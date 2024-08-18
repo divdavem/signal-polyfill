@@ -153,12 +153,23 @@ export namespace Signal {
       const node = this[NODE];
       node.value = VOLATILE_UNSET;
       node.volatile = false;
-      node.unsubscribe = node.subscribe?.(node.onChange);
+
+      let unsubscribed = false;
+      const unsubscribe = node.subscribe?.call(this, () => {
+        if (!unsubscribed) {
+          node.onChange.call(node);
+        }
+      });
+
+      node.unsubscribe = () => {
+        unsubscribed = true;
+        unsubscribe?.call(this);
+      };
     }
 
     #unwatched() {
       const node = this[NODE];
-      node.unsubscribe?.();
+      node.unsubscribe();
       node.volatile = true;
     }
   }

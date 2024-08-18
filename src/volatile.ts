@@ -1,8 +1,11 @@
+import type {Signal} from './wrapper';
 import {
   REACTIVE_NODE,
   type ReactiveNode,
   producerAccessed,
   producerUpdateValueVersion,
+  producerIncrementEpoch,
+  producerNotifyConsumers,
 } from './graph';
 
 /**
@@ -40,8 +43,8 @@ export interface VolatileNode<T> extends ReactiveNode {
   /** Read state from the outside world. May be expensive. */
   getSnapshot: () => T;
 
-  /** Called by the `subscribe` handler. Invalidates the cached value. */
-  onChange(): void;
+  /** Invalidates the cached value when subscribed to an external source. */
+  onChange(this: VolatileNode<T>): void;
 
   /**
    * Cached value. Only used when being watched and a subscriber is provided.
@@ -53,14 +56,19 @@ export interface VolatileNode<T> extends ReactiveNode {
    * If the volatile source supports it, a `subscribe` callback may be
    * provided that upgrades to a non-volatile source by tracking changes in
    * a versioned cache.
+   *
+   * The return value may be an `unsubscribe` callback.
    */
-  subscribe?: (onChange: VolatileNode<T>['onChange']) => void | VolatileNode<T>['unsubscribe'];
+  subscribe?: (
+    this: Signal.Volatile<T>,
+    onChange: () => void,
+  ) => void | ((this: Signal.Volatile<T>) => void);
 
   /**
    * Returned by the `subscribe` callback. Invoked when the volatile source is
    * no longer being observed.
    */
-  unsubscribe?: void | (() => void);
+  unsubscribe(): void;
 }
 
 // Note: Using an IIFE here to ensure that the spread assignment is not considered
@@ -72,8 +80,14 @@ const VOLATILE_NODE = /* @__PURE__ */ (() => ({
   dirty: true,
   volatile: true,
 
+  unsubscribe() {},
+
   onChange() {
-    // TODO: Implement change notifications.
+    this.version++;
+    this.value = UNSET;
+    this.dirty = true;
+    producerIncrementEpoch();
+    producerNotifyConsumers(this);
   },
 
   producerMustRecompute(node: VolatileNode<unknown>): boolean {
