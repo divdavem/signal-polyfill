@@ -2,8 +2,7 @@ import {
   REACTIVE_NODE,
   type ReactiveNode,
   producerAccessed,
-  producerIncrementEpoch,
-  producerNotifyConsumers,
+  producerUpdateValueVersion,
 } from './graph';
 
 /**
@@ -24,33 +23,17 @@ export function createVolatile<T>(getSnapshot: () => T): VolatileNode<T> {
   const node: VolatileNode<T> = Object.create(VOLATILE_NODE);
   node.getSnapshot = getSnapshot;
 
-  node.onChange = () => {
-    node.value = UNSET;
-    node.version++;
-    producerIncrementEpoch();
-    producerNotifyConsumers(node);
-  };
-
   return node;
 }
 
-export function volatileGetFn<T>(this: VolatileNode<T>): T {
-  producerAccessed(this);
+export function volatileGetFn<T>(node: VolatileNode<T>): T {
+  // Update the cache if necessary.
+  producerUpdateValueVersion(node);
 
-  // TODO:
-  // - Handle errors in live snapshots.
-  // - Throw if dependencies are used in the snapshot.
-  // - Bust downstream caches when not live.
+  // Track who accessed the signal.
+  producerAccessed(node);
 
-  if (this.live) {
-    if (this.value === UNSET) {
-      this.value = this.getSnapshot();
-    }
-
-    return this.value;
-  }
-
-  return this.getSnapshot();
+  return node.value as T;
 }
 
 export interface VolatileNode<T> extends ReactiveNode {
@@ -60,14 +43,24 @@ export interface VolatileNode<T> extends ReactiveNode {
   /** Called by the `subscribe` handler. Invalidates the cached value. */
   onChange(): void;
 
-  /** Whether the volatile node is being observed. */
-  live: boolean;
-
   /**
    * Cached value. Only used when being watched and a subscriber is provided.
    * Otherwise values are pulled from `getSnapshot`.
    */
   value: typeof UNSET | T;
+
+  /**
+   * If the volatile source supports it, a `subscribe` callback may be
+   * provided that upgrades to a non-volatile source by tracking changes in
+   * a versioned cache.
+   */
+  subscribe?: (onChange: VolatileNode<T>['onChange']) => void | VolatileNode<T>['unsubscribe'];
+
+  /**
+   * Returned by the `subscribe` callback. Invoked when the volatile source is
+   * no longer being observed.
+   */
+  unsubscribe?: void | (() => void);
 }
 
 // Note: Using an IIFE here to ensure that the spread assignment is not considered
@@ -76,5 +69,27 @@ export interface VolatileNode<T> extends ReactiveNode {
 const VOLATILE_NODE = /* @__PURE__ */ (() => ({
   ...REACTIVE_NODE,
   value: UNSET,
-  live: false,
+  dirty: true,
+  volatile: true,
+
+  onChange() {
+    // TODO: Implement change notifications.
+  },
+
+  producerMustRecompute(node: VolatileNode<unknown>): boolean {
+    return node.value === UNSET;
+  },
+
+  producerRecomputeValue(node: VolatileNode<unknown>): void {
+    if (node.volatile) {
+      // The source is untracked. Unconditionally refresh the value.
+      node.value = node.getSnapshot();
+      return;
+    }
+
+    if (node.value === UNSET) {
+      // The value is tracked, but the cache is stale. Refresh it.
+      node.value = node.getSnapshot();
+    }
+  },
 }))();

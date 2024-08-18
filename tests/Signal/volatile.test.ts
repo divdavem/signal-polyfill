@@ -9,13 +9,14 @@ describe('Signal.Volatile', () => {
   });
 
   it('always reads values from source when not observed', () => {
-    const spy = vi.fn(() => 'value');
+    let count = 0;
+    const spy = vi.fn(() => count++);
     const volatile = new Signal.Volatile(spy);
 
     expect(spy).not.toHaveBeenCalled();
 
-    volatile.get();
-    volatile.get();
+    expect(volatile.get()).toBe(0);
+    expect(volatile.get()).toBe(1);
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
@@ -65,11 +66,30 @@ describe('Signal.Volatile', () => {
       subscribe: () => {},
     });
 
+    // Promote the volatile to a 'live' producer.
     const watcher = new Signal.subtle.Watcher(() => {});
     watcher.watch(volatile);
 
+    // Cache the value. Depend on `onChange` to tell us of changes.
     expect(volatile.get()).toBe('value');
     expect(volatile.get()).toBe('value');
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('can be cached by consumers while observed', () => {
+    const getSnapshot = vi.fn(() => 'value');
+    const volatile = new Signal.Volatile(getSnapshot, {
+      subscribe: () => {},
+    });
+
+    const watcher = new Signal.subtle.Watcher(() => {});
+    watcher.watch(volatile);
+
+    expect(getSnapshot).not.toHaveBeenCalled();
+    const computed = new Signal.Computed(() => volatile.get());
+
+    expect(computed.get()).toBe('value');
+    expect(computed.get()).toBe('value');
     expect(getSnapshot).toHaveBeenCalledTimes(1);
   });
 });

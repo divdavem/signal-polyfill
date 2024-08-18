@@ -131,34 +131,35 @@ export namespace Signal {
     constructor(
       getSnapshot: () => T,
       options?: {
-        subscribe?: (cb: () => void) => void | (() => void);
+        subscribe?: (onChange: () => void) => void | (() => void);
       },
     ) {
       const node = createVolatile(getSnapshot);
       node.wrapper = this;
+      node.subscribe = options?.subscribe;
+      node.watched = this.#watched;
+      node.unwatched = this.#unwatched;
       this[NODE] = node;
-
-      const subscribe = options?.subscribe;
-      if (subscribe) {
-        let unsubscribe: void | (() => void);
-        node.watched = () => {
-          node.live = true;
-          unsubscribe = subscribe(node.onChange);
-        };
-
-        node.unwatched = () => {
-          node.live = false;
-          node.value = VOLATILE_UNSET;
-          unsubscribe?.();
-        };
-      }
     }
 
     get(): T {
       if (!isVolatile(this))
         throw new TypeError('Wrong receiver type for Signal.Volatile.prototype.get');
 
-      return (volatileGetFn<T>).call(this[NODE]);
+      return volatileGetFn(this[NODE]);
+    }
+
+    #watched() {
+      const node = this[NODE];
+      node.value = VOLATILE_UNSET;
+      node.volatile = false;
+      node.unsubscribe = node.subscribe?.(node.onChange);
+    }
+
+    #unwatched() {
+      const node = this[NODE];
+      node.unsubscribe?.();
+      node.volatile = true;
     }
   }
 
