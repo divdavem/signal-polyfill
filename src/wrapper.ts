@@ -29,7 +29,12 @@ import {
   producerRemoveLiveConsumerAtIndex,
 } from './graph.js';
 import {createSignal, signalGetFn, signalSetFn, type SignalNode} from './signal.js';
-import {createVolatile, volatileGetFn, type VolatileNode} from './volatile';
+import {
+  createVolatile,
+  volatileGetFn,
+  type VolatileNode,
+  UNSET as VOLATILE_UNSET,
+} from './volatile';
 
 const NODE: unique symbol = Symbol('node');
 
@@ -123,11 +128,30 @@ export namespace Signal {
       isVolatile = (v: any): v is Volatile<any> => #brand in v;
     }
 
-    constructor(getSnapshot: () => T, _options?: Signal.Options<T>) {
+    constructor(
+      getSnapshot: () => T,
+      options?: {
+        subscribe?: (cb: () => void) => void | (() => void);
+      },
+    ) {
       const node = createVolatile(getSnapshot);
+      node.wrapper = this;
       this[NODE] = node;
 
-      // TODO: Implement subscribe.
+      const subscribe = options?.subscribe;
+      if (subscribe) {
+        let unsubscribe: void | (() => void);
+        node.watched = () => {
+          node.live = true;
+          unsubscribe = subscribe(node.onChange);
+        };
+
+        node.unwatched = () => {
+          node.live = false;
+          node.value = VOLATILE_UNSET;
+          unsubscribe?.();
+        };
+      }
     }
 
     get(): T {
@@ -139,7 +163,7 @@ export namespace Signal {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type AnySignal<T = any> = State<T> | Computed<T>;
+  type AnySignal<T = any> = State<T> | Computed<T> | Volatile<T>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type AnySink = Computed<any> | subtle.Watcher;
 
@@ -220,7 +244,7 @@ export namespace Signal {
 
       #assertSignals(signals: AnySignal[]): void {
         for (const signal of signals) {
-          if (!isComputed(signal) && !isState(signal)) {
+          if (!isComputed(signal) && !isState(signal) && !isVolatile(signal)) {
             throw new TypeError('Called watch/unwatch without a Computed or State argument');
           }
         }
