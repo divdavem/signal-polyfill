@@ -29,12 +29,7 @@ import {
   producerRemoveLiveConsumerAtIndex,
 } from './graph.js';
 import {createSignal, signalGetFn, signalSetFn, type SignalNode} from './signal.js';
-import {
-  createVolatile,
-  volatileGetFn,
-  type VolatileNode,
-  UNSET as VOLATILE_UNSET,
-} from './volatile';
+import {createVolatile, volatileGetFn, type VolatileNode} from './volatile';
 
 const NODE: unique symbol = Symbol('node');
 
@@ -151,7 +146,7 @@ export namespace Signal {
 
     #watched() {
       const node = this[NODE];
-      node.value = VOLATILE_UNSET;
+      node.dirty = true; // Force a fresh read before trusting cache.
       node.volatile = false;
 
       let unsubscribed = false;
@@ -177,7 +172,7 @@ export namespace Signal {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type AnySignal<T = any> = State<T> | Computed<T> | Volatile<T>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type AnySink = Computed<any> | subtle.Watcher;
+  type AnySink = Computed<any> | Volatile<any> | subtle.Watcher;
 
   // eslint-disable-next-line @typescript-eslint/no-namespace
   export namespace subtle {
@@ -197,7 +192,7 @@ export namespace Signal {
     // Returns ordered list of all signals which this one referenced
     // during the last time it was evaluated
     export function introspectSources(sink: AnySink): AnySignal[] {
-      if (!isComputed(sink) && !isWatcher(sink)) {
+      if (!isComputed(sink) && !isWatcher(sink) && !isVolatile(sink)) {
         throw new TypeError('Called introspectSources without a Computed or Watcher argument');
       }
       return sink[NODE].producerNode?.map((n) => n.wrapper) ?? [];
@@ -207,7 +202,7 @@ export namespace Signal {
     // lead to an Effect which has not been disposed
     // Note: Only watched Computed signals will be in this list.
     export function introspectSinks(signal: AnySignal): AnySink[] {
-      if (!isComputed(signal) && !isState(signal)) {
+      if (!isComputed(signal) && !isState(signal) && !isVolatile(signal)) {
         throw new TypeError('Called introspectSinks without a Signal argument');
       }
       return signal[NODE].liveConsumerNode?.map((n) => n.wrapper) ?? [];
@@ -215,7 +210,7 @@ export namespace Signal {
 
     // True iff introspectSinks() is non-empty
     export function hasSinks(signal: AnySignal): boolean {
-      if (!isComputed(signal) && !isState(signal)) {
+      if (!isComputed(signal) && !isState(signal) && !isVolatile(signal)) {
         throw new TypeError('Called hasSinks without a Signal argument');
       }
       const liveConsumerNode = signal[NODE].liveConsumerNode;
@@ -225,7 +220,7 @@ export namespace Signal {
 
     // True iff introspectSources() is non-empty
     export function hasSources(signal: AnySink): boolean {
-      if (!isComputed(signal) && !isWatcher(signal)) {
+      if (!isComputed(signal) && !isWatcher(signal) && !isVolatile(signal)) {
         throw new TypeError('Called hasSources without a Computed or Watcher argument');
       }
       const producerNode = signal[NODE].producerNode;

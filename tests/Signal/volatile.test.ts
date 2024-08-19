@@ -135,4 +135,42 @@ describe('Signal.Volatile', () => {
     expect(notifySpy).toHaveBeenCalledTimes(1);
     expect(volatile.get()).toBe('changed');
   });
+
+  it('tracks its own sources and sinks', () => {
+    const source = new Signal.State(0);
+    const volatile = new Signal.Volatile(() => {
+      return source.get();
+    });
+
+    const watcher = new Signal.subtle.Watcher(() => {});
+    expect(Signal.subtle.hasSinks(volatile)).toBe(false);
+
+    watcher.watch(volatile);
+    expect(Signal.subtle.hasSinks(volatile)).toBe(true);
+
+    expect(Signal.subtle.hasSources(volatile)).toBe(false);
+    volatile.get();
+    expect(Signal.subtle.hasSources(volatile)).toBe(true);
+  });
+
+  it('subscribes to dependencies and recomputes when they change', () => {
+    const source = new Signal.State('initial');
+    const getSnapshot = vi.fn(() => source.get());
+    const volatile = new Signal.Volatile(getSnapshot, {
+      subscribe() {}, // Enable an upgrade to non-volatile.
+    });
+
+    const watcher = new Signal.subtle.Watcher(() => {});
+    watcher.watch(volatile);
+    expect(getSnapshot).not.toHaveBeenCalled();
+
+    expect(volatile.get()).toBe('initial');
+    expect(volatile.get()).toBe('initial');
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
+
+    source.set('updated');
+    expect(volatile.get()).toBe('updated');
+    expect(volatile.get()).toBe('updated');
+    expect(getSnapshot).toHaveBeenCalledTimes(2);
+  });
 });

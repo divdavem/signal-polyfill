@@ -6,13 +6,9 @@ import {
   producerUpdateValueVersion,
   producerIncrementEpoch,
   producerNotifyConsumers,
+  consumerBeforeComputation,
+  consumerAfterComputation,
 } from './graph';
-
-/**
- * A dedicated symbol used before a computed value has been calculated for the first time.
- * Explicitly typed as `any` so we can use it as signal's value.
- */
-export const UNSET = /* @__PURE__ */ Symbol('UNSET');
 
 /**
  * Volatile functions read from external sources. They can change at any time
@@ -50,7 +46,7 @@ export interface VolatileNode<T> extends ReactiveNode {
    * Cached value. Only used when being watched and a subscriber is provided.
    * Otherwise values are pulled from `getSnapshot`.
    */
-  value: typeof UNSET | T;
+  value: T;
 
   /**
    * If the volatile source supports it, a `subscribe` callback may be
@@ -76,7 +72,6 @@ export interface VolatileNode<T> extends ReactiveNode {
 // TODO: remove when https://github.com/evanw/esbuild/issues/3392 is resolved.
 const VOLATILE_NODE = /* @__PURE__ */ (() => ({
   ...REACTIVE_NODE,
-  value: UNSET,
   dirty: true,
   volatile: true,
 
@@ -84,26 +79,26 @@ const VOLATILE_NODE = /* @__PURE__ */ (() => ({
 
   onChange() {
     this.version++;
-    this.value = UNSET;
     this.dirty = true;
     producerIncrementEpoch();
     producerNotifyConsumers(this);
   },
 
   producerMustRecompute(node: VolatileNode<unknown>): boolean {
-    return node.value === UNSET;
+    return node.dirty;
   },
 
   producerRecomputeValue(node: VolatileNode<unknown>): void {
-    if (node.volatile) {
-      // The source is untracked. Unconditionally refresh the value.
-      node.value = node.getSnapshot();
-      return;
-    }
+    if (node.volatile || node.dirty) {
+      const alreadyVolatile = node.volatile;
+      const prevConsumer = consumerBeforeComputation(node);
 
-    if (node.value === UNSET) {
-      // The value is tracked, but the cache is stale. Refresh it.
-      node.value = node.getSnapshot();
+      try {
+        node.value = node.getSnapshot();
+      } finally {
+        consumerAfterComputation(node, prevConsumer);
+        node.volatile ||= alreadyVolatile;
+      }
     }
   },
 }))();
