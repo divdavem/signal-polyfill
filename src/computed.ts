@@ -16,6 +16,7 @@ import {
   ReactiveNode,
   SIGNAL,
 } from './graph.js';
+import {beginEnsureLive} from './liveConsumer.js';
 
 /**
  * A computation, which derives a value from a declarative reactive expression.
@@ -48,11 +49,16 @@ export type ComputedGetter<T> = (() => T) & {
 };
 
 export function computedGet<T>(node: ComputedNode<T>) {
-  // Check if the value needs updating before returning it.
-  producerUpdateValueVersion(node);
+  const endEnsureLive = beginEnsureLive();
+  try {
+    // Check if the value needs updating before returning it.
+    producerUpdateValueVersion(node);
 
-  // Record that someone looked at this signal.
-  producerAccessed(node);
+    // Record that someone looked at this signal.
+    producerAccessed(node);
+  } finally {
+    endEnsureLive();
+  }
 
   if (node.value === ERRORED) {
     throw node.error;

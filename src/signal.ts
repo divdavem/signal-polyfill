@@ -17,6 +17,7 @@ import {
   ReactiveNode,
   SIGNAL,
 } from './graph.js';
+import {beginEnsureLive} from './liveConsumer.js';
 
 // Required as the signals library is in a separate package, so we need to explicitly ensure the
 // global `ngDevMode` type is defined.
@@ -64,7 +65,12 @@ export function setPostSignalSetFn(fn: (() => void) | null): (() => void) | null
 }
 
 export function signalGetFn<T>(this: SignalNode<T>): T {
-  producerAccessed(this);
+  const endEnsureLive = beginEnsureLive();
+  try {
+    producerAccessed(this);
+  } finally {
+    endEnsureLive();
+  }
   return this.value;
 }
 
