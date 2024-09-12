@@ -173,7 +173,7 @@ const COMPUTED_NODE = /* @__PURE__ */ (() => {
         } finally {
           consumerAfterComputation(node, prevConsumer);
         }
-        outdatedReadVersion = consumerPollProducersForChange(node);
+        outdatedReadVersion = node.volatile ? false : consumerPollProducersForChange(node);
       }
       if (outdatedReadVersion) {
         newValue = ERRORED;
