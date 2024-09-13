@@ -181,12 +181,17 @@ export interface ReactiveNode {
   consumerOnSignalRead(node: unknown): void;
 
   /**
-   * Called when the signal becomes "live"
+   * Whether the watched callback has been called for this signal.
+   */
+  currentlyUsed: boolean;
+
+  /**
+   * Called when the signal becomes used
    */
   watched?(): void;
 
   /**
-   * Called when the signal stops being "live"
+   * Called when the signal stops being used
    */
   unwatched?(): void;
 
@@ -275,12 +280,6 @@ export function producerIncrementEpoch(): void {
  * Ensure this producer's `version` is up-to-date.
  */
 export function producerUpdateValueVersion(node: ReactiveNode): void {
-  if (consumerIsLive(node) && !node.dirty) {
-    // A live consumer will be marked dirty by producers, so a clean state means that its version
-    // is guaranteed to be up-to-date.
-    return;
-  }
-
   if (!node.dirty && node.lastCleanEpoch === epoch) {
     // Even non-live consumers can skip polling if they previously found themselves to be clean at
     // the current epoch, since their dependencies could not possibly have changed (such a change
@@ -456,15 +455,20 @@ function producerAddLiveConsumer(
 ): number {
   assertProducerNode(node);
   assertConsumerNode(node);
-  if (node.liveConsumerNode.length === 0) {
-    node.watched?.call(node.wrapper);
+  const firstNode = node.liveConsumerNode.length === 0;
+  if (firstNode) {
     // When going from 0 to 1 live consumers, we become a live consumer to our producers.
     for (let i = 0; i < node.producerNode.length; i++) {
       node.producerIndexOfThis[i] = producerAddLiveConsumer(node.producerNode[i], node, i);
     }
   }
   node.liveConsumerIndexOfThis.push(indexOfThis);
-  return node.liveConsumerNode.push(consumer) - 1;
+  const res = node.liveConsumerNode.push(consumer) - 1;
+  if (firstNode && !node.currentlyUsed) {
+    node.currentlyUsed = true;
+    node.watched?.call(node.wrapper);
+  }
+  return res;
 }
 
 /**
@@ -480,11 +484,11 @@ export function producerRemoveLiveConsumerAtIndex(node: ReactiveNode, idx: numbe
     );
   }
 
-  if (node.liveConsumerNode.length === 1) {
+  const lastNode = node.liveConsumerNode.length === 1;
+  if (lastNode) {
     // When removing the last live consumer, we will no longer be live. We need to remove
     // ourselves from our producers' tracking (which may cause consumer-producers to lose
     // liveness as well).
-    node.unwatched?.call(node.wrapper);
     for (let i = 0; i < node.producerNode.length; i++) {
       producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
     }
@@ -507,6 +511,10 @@ export function producerRemoveLiveConsumerAtIndex(node: ReactiveNode, idx: numbe
     const consumer = node.liveConsumerNode[idx];
     assertConsumerNode(consumer);
     consumer.producerIndexOfThis[idxProducer] = idx;
+  }
+  if (lastNode && node.currentlyUsed) {
+    node.currentlyUsed = false;
+    node.unwatched?.call(node.wrapper);
   }
 }
 

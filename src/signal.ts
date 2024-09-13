@@ -65,7 +65,7 @@ export function setPostSignalSetFn(fn: (() => void) | null): (() => void) | null
 }
 
 export function signalGetFn<T>(this: SignalNode<T>): T {
-  const endEnsureLive = beginEnsureLive();
+  const endEnsureLive = beginEnsureLive(this);
   try {
     producerAccessed(this);
   } finally {

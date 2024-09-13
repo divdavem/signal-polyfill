@@ -49,7 +49,7 @@ export type ComputedGetter<T> = (() => T) & {
 };
 
 export function computedGet<T>(node: ComputedNode<T>) {
-  const endEnsureLive = beginEnsureLive();
+  const endEnsureLive = beginEnsureLive(node);
   try {
     // Check if the value needs updating before returning it.
     producerUpdateValueVersion(node);

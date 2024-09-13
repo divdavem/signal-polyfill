@@ -1,12 +1,14 @@
 import {
   consumerDestroy,
   getActiveConsumer,
+  producerAccessed,
   REACTIVE_NODE,
+  ReactiveNode,
   setActiveConsumer,
 } from './graph';
 
 const noop = () => {};
-export const beginEnsureLive = () => {
+export const beginEnsureLive = (node: ReactiveNode) => {
   const activeConsumer = getActiveConsumer();
   if (activeConsumer) {
     return noop;
@@ -17,8 +19,9 @@ export const beginEnsureLive = () => {
   liveConsumer.consumerAllowSignalWrites = true;
 
   setActiveConsumer(liveConsumer);
+  producerAccessed(node);
+  setActiveConsumer(null);
   return () => {
-    setActiveConsumer(null);
     consumerDestroy(liveConsumer);
   };
 };
