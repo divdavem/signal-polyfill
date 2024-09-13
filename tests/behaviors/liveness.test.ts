@@ -56,4 +56,50 @@ describe('liveness', () => {
     expect(watchedSpy).toBeCalledTimes(1);
     expect(unwatchedSpy).toBeCalledTimes(1);
   });
+
+  it('is possible to update a signal in the watch callback', () => {
+    const logs: string[] = [];
+    let indent = '';
+    const logFn = (msg: string) => () => {
+      logs.push(`${indent}${msg}`);
+    };
+    const wrapFn =
+      <T>(logMsg: string, fn: () => T) =>
+      (): T => {
+        logs.push(`${indent}start ${logMsg}`);
+        const prevIndent = indent;
+        indent += '  ';
+        const res = fn();
+        indent = prevIndent;
+        logs.push(`${indent}end ${logMsg} returning ${res}`);
+        return res;
+      };
+    const wrapComputed = <T>(logMsg: string, fn: () => T) =>
+      new Signal.Computed(wrapFn(`${logMsg} computing`, fn), {
+        [Signal.subtle.watched]: logFn(`${logMsg} watched`),
+        [Signal.subtle.unwatched]: logFn(`${logMsg} unwatched`),
+      });
+    const signal = new Signal.State(0, {
+      [Signal.subtle.watched]: wrapFn('signal watched', () => {
+        const value = signal.get() + 1;
+        logs.push(`${indent}signal.set(${value})`);
+        signal.set(value);
+      }),
+      [Signal.subtle.unwatched]: logFn('signal unwatched'),
+    });
+    const dep1 = wrapComputed('dep1', () => `${signal.get()},${signal.get()}`);
+    const dep2 = wrapComputed('dep2', () => `${signal.get()},${signal.get()}`);
+    const dep3 = wrapComputed('result', () => `${dep1.get()},${dep2.get()}`);
+
+    wrapFn('signal.get 1', () => signal.get())();
+    wrapFn('signal.get 2', () => signal.get())();
+    wrapFn('dep1.get', () => dep1.get())();
+    wrapFn('dep1.get', () => dep1.get())();
+    wrapFn('dep2.get', () => dep2.get())();
+    wrapFn('dep2.get', () => dep2.get())();
+    wrapFn('dep3.get', () => dep3.get())();
+    wrapFn('dep3.get', () => dep3.get())();
+    console.log(logs);
+    // expect(logs).toMatchInlineSnapshot();
+  });
 });
